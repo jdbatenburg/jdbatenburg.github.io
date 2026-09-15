@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Another OS on a Synology</title>
+<meta name="description" content="How a Synology DS916+ is made to boot an operating system of your own choice — the bootloader check, the four GPIO lines that power the drive bays, LEDs, fan, disk sleep and persistence. Demonstrated with TrueNAS SCALE.">
+<meta name="author" content="J.D. Batenburg">
+<style>
+  /* E&eacute;n thema, bewust wit &mdash; apple.com-achtig: SF-systeemfont, veel lucht, hairlines, lichtgrijze vlakken. */
+  :root{
+    --bg:#ffffff; --surface:#f5f5f7; --panel:#f5f5f7;
+    --ink:#1d1d1f; --muted:#6e6e73; --faint:#86868b;
+    --accent:#0071e3; --accent-ink:#0066cc; --warn:#c93400;
+    --rule:#d2d2d7; --rule-strong:#c7c7cc;
+    --code-bg:#f5f5f7; --code-ink:#1d1d1f; --code-dim:#86868b; --code-prompt:#0071e3;
+    --measure:680px;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%; color-scheme:light}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Helvetica,Arial,sans-serif;
+    font-size:17px; line-height:1.47; letter-spacing:-.022em;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  .wrap{max-width:var(--measure); margin:0 auto; padding:0 22px}
+  code,pre{font-family:"SF Mono",SFMono-Regular,ui-monospace,Menlo,Consolas,monospace}
+
+  header.mast{background:var(--bg)}
+  .mast .wrap{padding-top:88px; padding-bottom:48px; text-align:center}
+  .eyebrow{font-weight:600; font-size:12px; letter-spacing:-.01em; text-transform:none;
+    color:var(--muted); margin:0 0 14px}
+  h1{font-weight:600; letter-spacing:-.028em; font-size:clamp(2.4rem,7vw,3.5rem); line-height:1.07;
+    margin:0; text-wrap:balance; color:var(--ink)}
+  .dek{font-size:clamp(1.15rem,2.6vw,1.5rem); line-height:1.35; letter-spacing:-.01em; font-weight:400;
+    color:var(--muted); margin:18px auto 0; max-width:34em; text-wrap:balance}
+  .byline{font-size:14px; color:var(--muted); margin:16px 0 0; letter-spacing:-.01em}
+  .specrow{display:flex; flex-wrap:wrap; justify-content:center; gap:8px 8px; margin-top:30px}
+  .chip{font-size:12px; letter-spacing:-.01em; color:var(--muted); border-radius:999px; padding:6px 13px; background:var(--surface)}
+  .chip b{color:var(--ink); font-weight:600}
+
+  main{padding:0 0 88px; border-top:1px solid var(--rule)}
+  section{padding-top:56px}
+  p{margin:0 0 18px} p:last-child{margin-bottom:0}
+  strong{font-weight:600}
+  .lede p{font-size:1.2rem; line-height:1.4; letter-spacing:-.017em; color:var(--ink)}
+
+  .part-head{display:flex; gap:14px; align-items:baseline; margin:0 0 14px}
+  .part-num{font-size:13px; font-weight:600; color:var(--accent); flex:none; letter-spacing:0}
+  h2{font-weight:600; letter-spacing:-.024em; font-size:clamp(1.6rem,4vw,2.1rem); line-height:1.12; margin:0; text-wrap:balance}
+  h3{font-weight:600; font-size:1.1rem; letter-spacing:-.015em; margin:26px 0 8px}
+  hr.div{border:0; border-top:1px solid var(--rule); margin:56px 0 0}
+
+  pre{background:var(--code-bg); color:var(--code-ink); border-radius:14px; margin:20px 0;
+    padding:18px 20px; overflow-x:auto; font-size:13px; line-height:1.6; letter-spacing:0}
+  pre .c{color:var(--code-dim)}
+  pre .p{color:var(--code-prompt)}
+  pre .k{color:var(--warn)}
+  pre b{color:var(--code-ink); font-weight:600}
+  p code,li code,td code{background:var(--code-bg); color:var(--code-ink); border-radius:6px; padding:1px 6px; font-size:.86em; letter-spacing:0}
+
+  .tablewrap{overflow-x:auto; margin:20px 0; border-radius:14px; background:var(--surface)}
+  table{border-collapse:collapse; width:100%; font-size:14px; letter-spacing:-.01em}
+  th,td{text-align:left; padding:11px 16px; border-bottom:1px solid var(--rule); vertical-align:top}
+  thead th{font-weight:600; font-size:12px; color:var(--muted)}
+  tbody tr:last-child td{border-bottom:0}
+  td.mono,th.mono{font-family:"SF Mono",SFMono-Regular,ui-monospace,Menlo,monospace; font-variant-numeric:tabular-nums; white-space:nowrap; letter-spacing:0}
+
+  .note{background:var(--surface); border-radius:14px; padding:18px 20px; margin:20px 0; font-size:15px; line-height:1.5}
+  .note .tag{font-weight:600; font-size:12px; color:var(--accent); display:block; margin-bottom:6px; letter-spacing:-.01em}
+  .note.warn .tag{color:var(--warn)}
+  .note.win .tag{color:var(--accent)}
+  .note p{margin:0}
+  .kicker{font-weight:600; font-size:12px; color:var(--muted); margin:0 0 8px; letter-spacing:-.01em}
+
+  ul{margin:0 0 18px; padding-left:1.2em} li{margin:8px 0}
+
+  footer{border-top:1px solid var(--rule); background:var(--surface); padding:34px 0 60px}
+  footer .wrap{color:var(--muted); font-size:13px; line-height:1.5; letter-spacing:-.01em}
+  footer .t{font-weight:600; color:var(--ink)}
+  .disclaimer{border-top:1px solid var(--rule); margin-top:30px; padding-top:26px; scroll-margin-top:24px}
+  .disclaimer p{margin:0 0 12px} .disclaimer p:last-child{margin-bottom:0}
+  .ref{font-size:15px; color:var(--muted)} .ref a{color:var(--accent-ink)}
+
+  ::selection{background:#b3d7ff; color:var(--ink)}
+  a{color:var(--accent-ink); text-decoration:none} a:hover{text-decoration:underline}
+  a:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:4px}
+  @media (max-width:560px){ .mast .wrap{padding-top:64px} .part-head{gap:10px} }
+</style>
+</head>
+<body>
+
+<header class="mast">
+  <div class="wrap">
+    <p class="eyebrow">Hardware field notes &middot; Synology DiskStation</p>
+    <h1>Yes, my DS916+ Synology will run another OS</h1>
+    <p class="dek">The firmware checks two things and nothing else. Pass them, raise four GPIO lines, and the DiskStation is an ordinary Linux box that will take whatever OS you choose. Here is how &mdash; and why, in this case, that OS became TrueNAS.</p>
+    <p class="byline">Written by J.D. Batenburg</p>
+    <div class="specrow">
+      <span class="chip"><b>Tested on</b> &middot; DS916+ (Pentium N3710)</span>
+      <span class="chip"><b>Installed here</b> &middot; TrueNAS SCALE 25.10</span>
+      <span class="chip"><b>Also fits</b> &middot; any EFI Linux</span>
+      <span class="chip"><b>Status</b> &middot; working, in daily use</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap lede">
+    <section style="padding-top:40px">
+      <p>In 2016, I bought a Synology DiskStation. It worked well, and for a long time, that was enough. Over the years, however, I started working more and more with TrueNAS, and eventually I found myself asking a very simple question: why couldn&rsquo;t TrueNAS run directly on Synology hardware?</p>
+      <p>Although almost everything I read suggested that it could not be done, I knew that a DiskStation was not some mysterious black box. At its core, it is simply a compact Intel-based computer. The real question was not whether it could run another operating system, but how to get into it.</p>
+      <p>That turned out to be the interesting part. Synology controls the way the machine starts, yet behind that front door there is no elaborate signed-boot chain, no proprietary SATA architecture and no exotic firmware system standing between the hardware and Linux. Instead, there is primarily a bootloader check, together with a handful of hardware-specific details that DSM normally takes care of for you.</p>
+      <p>Those details include things such as the drive bays, LEDs, fans, disk power and sleep behaviour. A normal Linux kernel does not automatically understand how all of these components are controlled on Synology hardware, but once you teach it how the hardware works, the situation changes considerably.</p>
+      <p>The DiskStation stops behaving like a closed appliance and becomes a computer again.</p>
+      <p>That means it can run Debian, Proxmox, OpenMediaVault and, yes, TrueNAS directly on the hardware, while still making use of the features that make the DiskStation useful in the first place, including its drive bays, LEDs, fan control, disk power management and sleep behaviour.</p>
+      <p>That is what this page is about: not replacing Synology hardware, but unlocking it.</p>
+      <p>Most of what follows is not specific to TrueNAS. The same principles apply to other Linux-based operating systems as well, and wherever TrueNAS requires something different, I will point it out explicitly.</p>
+      <p>There is, however, one important thing to understand before we begin. We are going to make changes involving the boot process, GPIO, disk power and firmware. Before changing anything, therefore, please read the <a href="#disclaimer">disclaimer</a>.</p>
+      <p>And then we can open the door.</p>
+    </section>
+  </div>
+
+  <div class="wrap">
+
+    <section>
+      <div class="part-head"><span class="part-num">1</span><h2>Get past the boot check</h2></div>
+      <p>The DiskStation boots from a small internal USB module, the eDOM, connected to header <code>J2</code>. The firmware will start a USB device provided that two conditions are met: the device identifies itself as USB <code>f400:f400</code>, and it contains a file named <code>\EFI\boot\SynoBootLoader.efi</code>.</p>
+      <p>That file is, however, simply an unsigned GRUB EFI executable; there is no cryptographic verification of its contents. As a result, any compatible EFI loader placed under that filename is executed. The practical approach is therefore to install the operating system of choice onto an SSD in a USB enclosure whose VID:PID can be changed to <code>f400:f400</code> &mdash; a JMicron JMS578 bridge is suitable for this &mdash; after which the operating system's own EFI loader can be copied to the filename expected by the Synology firmware:</p>
+      <pre><span class="p">$</span> mount /dev/sdX2 /mnt/esp
+<span class="p">$</span> cp /mnt/esp/EFI/boot/bootx64.efi /mnt/esp/EFI/boot/<b>SynoBootLoader.efi</b>
+<span class="p">$</span> umount /mnt/esp</pre>
+      <p>There is no local display output, which leaves two conventional installation paths: install the operating system onto the SSD using another machine and subsequently move the SSD to the DiskStation, or operate the installer through the serial header <code>JP1</code>, using 3.3 V TTL at 115200 8N1.</p>
+      <p>TrueNAS provides an additional option. Its installer exposes JSON-RPC on port 8080, allowing the installation process to be controlled over the network rather than through a local console.</p>
+    </section>
+
+    <hr class="div">
+
+    <section>
+      <div class="part-head"><span class="part-num">2</span><h2>One device, two partitions</h2></div>
+      <p>During the initial UEFI stage, the firmware exposes effectively one relevant device to the loader: the <code>f400:f400</code> device from which it booted. From GRUB's perspective, a second USB stick or a SATA disk is therefore not available at the point where the EFI program starts.</p>
+      <p>This distinction matters because an installer placed on another device may consequently remain invisible to GRUB. A loader that subsequently searches for files on such a device can end up at its <code>rescue</code> prompt; on a headless system without video output, that behaviour is externally indistinguishable from a machine that has simply stopped booting.</p>
+      <p>The loader and installer are therefore placed on the same physical device, while remaining separated into their own partitions:</p>
+      <pre>partition 1   FAT16, 16 MB, active     \EFI\boot\<b>SynoBootLoader.efi</b>   <span class="c"># the OS's own GRUB, renamed</span>
+partition 3   FAT32, ~4 GB             the installer ISO, <b>extracted</b>       <span class="c"># not written raw</span></pre>
+      <p>The installer ISO is extracted onto FAT rather than written to the partition as a raw image. There are two relevant reasons for doing so. FAT is the filesystem that UEFI implementations can be expected to understand directly, while extraction also places the files GRUB needs to locate &mdash; including <code>/.disk/&lt;uuid&gt;</code>, the kernel, the initrd and <code>live/filesystem.squashfs</code> &mdash; on the same device from which GRUB is already running.</p>
+      <p>Nothing in either the loader or the installer itself needs to be modified; only the location from which the existing components are presented changes.</p>
+      <p>Once started, the installer runs in RAM and becomes reachable over the network. In the case of TrueNAS, this provides a web installer on port 80 together with a JSON-RPC API over WebSocket on port 8080, through which the complete installation sequence &mdash; including target selection, password configuration, installation and reboot &mdash; can be controlled remotely.</p>
+      <p>The installation target can be any disk visible to the installer. In this case, that target was an SSD in a USB enclosure, which subsequently became the <code>f400:f400</code> boot device itself.</p>
+      <div class="note">
+        <span class="tag">Caveat</span>
+        <p>This configuration was verified on a DS916+ running TrueNAS SCALE 25.10. Other DiskStation models may expose additional devices during the UEFI stage, while other installers may use different mechanisms to locate their installation media. It is therefore advisable to inspect the loader's embedded <code>grub.cfg</code> before assuming that the partition layout above is required unchanged.</p>
+      </div>
+    </section>
+
+    <hr class="div">
+
+    <section>
+      <div class="part-head"><span class="part-num">3</span><h2>Turn the drive bays on</h2></div>
+      <p>At this stage the operating system itself can boot successfully, but the internal drive bays may still appear to contain no disks. The underlying issue is not SATA detection but power: the bays are switched through four SoC GPIO lines which the BIOS leaves low and which DSM normally raises during its own boot sequence.</p>
+      <p>The required pin numbers can be found in DSM's kernel command line on the eDOM:</p>
+      <pre><span class="k">syno_hdd_enable=61,60,71,58</span></pre>
+      <p>On a mainline kernel, these correspond to the following lines on <code>gpiochip1</code>, labelled <code>INT33FF:01</code>:</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Bay</th><th class="mono">Synology GPIO</th><th class="mono">Mainline GPIO line</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td class="mono">61</td><td class="mono">615</td></tr>
+            <tr><td>2</td><td class="mono">60</td><td class="mono">614</td></tr>
+            <tr><td>3</td><td class="mono">71</td><td class="mono">631</td></tr>
+            <tr><td>4</td><td class="mono">58</td><td class="mono">612</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The bays can then be powered as follows:</p>
+      <pre><span class="p">#</span> for line in 615 614 631 612; do
+    echo $line &gt; /sys/class/gpio/export
+    echo <b>high</b> &gt; /sys/class/gpio/gpio$line/direction   <span class="c"># one write; "out" then "1" dips the rail</span>
+    sleep 3                                            <span class="c"># stagger the spin-up</span>
+  done</pre>
+      <p>The use of <code>high</code> in a single write is deliberate. Writing <code>out</code> first and subsequently writing <code>1</code> briefly changes the state of the line, causing the corresponding power rail to dip.</p>
+      <p>This sequence should be placed in a systemd unit and executed before any service that expects the storage devices to be present, including <code>mdadm</code>, LVM or ZFS pool import. On TrueNAS, the relevant ordering is:</p>
+      <pre>Before=ix-wait-on-disks.service zfs-import.target middlewared.service</pre>
+      <p>With that dependency in place, the drives are powered and available during every normal boot.</p>
+      <div class="note win">
+        <span class="tag">Minimum working configuration</span>
+        <p>At this point the essential hardware dependencies have been addressed. Satisfying the boot check and enabling power to the drive bays is sufficient to obtain a functional system independently of the operating system being used; the remaining work concerns integration features such as LEDs, fan control, disk sleep and persistence across updates.</p>
+      </div>
+    </section>
+
+    <hr class="div">
+
+    <section>
+      <div class="part-head"><span class="part-num">4</span><h2>Lights, fan and sleep</h2></div>
+      <p>The remaining hardware is accessible through standard interfaces, although DSM normally hides most of the relevant implementation details.</p>
+      <ul>
+        <li>Tray LEDs are controlled by a TI LP3943 at I&sup2;C address <code>0x60</code> on <code>i2c-1</code>, with access gated by GPIO line <code>661</code>. The logic on this board is inverted: register value <code>00</code> means on, while <code>01</code> means off. For bay N, the green LED is channel <code>2(N&minus;1)</code> and the orange LED is channel <code>2(N&minus;1)+1</code>.</li>
+        <li>The fan, status LED and buzzer are controlled by a microcontroller connected to <code>/dev/ttyS1</code> at 9600 8N1. It accepts single ASCII commands, including <code>Vnn</code> for fan duty and <code>7</code>, <code>8</code> and <code>9</code> for status LED off, on and blink respectively. Commands <code>1</code> and <code>C</code> must not be sent: they trigger power-off and reset immediately.</li>
+        <li>DSM-like disk sleep can be approximated by enabling EPC on the drives with <code>sg_sat_set_features --feature=0x4a</code>, providing a low-RPM idle state, followed by <code>hdparm -y</code> when the entire group has remained inactive for a longer period. One dependency needs particular attention: any ATA command, including a seemingly harmless <code>hdparm -C</code> issued by monitoring software, restarts the relevant timers. Monitoring should therefore avoid polling disks that have not already generated I/O.</li>
+      </ul>
+    </section>
+
+    <hr class="div">
+
+    <section>
+      <div class="part-head"><span class="part-num">5</span><h2>Make it persistent</h2></div>
+      <p>On a conventional Linux distribution, persistence is relatively straightforward because scripts and systemd units stored in <code>/etc</code> remain in place. Appliance-style operating systems introduce an additional dependency, however: on TrueNAS, <code>/etc</code> is writable during normal operation but is reset as part of an update.</p>
+      <p>The required files can therefore be retained on a small ZFS dataset and restored during POST-INIT:</p>
+      <pre><span class="p">#</span> zfs create -o mountpoint=legacy boot-pool/syno-hdd-power
+<span class="c"># TrueNAS &rarr; System &rarr; Advanced &rarr; Init/Shutdown Scripts, POSTINIT:</span>
+mount -t zfs boot-pool/syno-hdd-power /run/shp &amp;&amp; bash /run/shp/install.sh; umount /run/shp</pre>
+      <p>A separate issue applies irrespective of the operating system selected. Both Ethernet interfaces initially come up with the same placeholder MAC address:</p>
+      <pre>12:34:56:78:9A:BC</pre>
+      <p>DSM would normally replace these during boot using the actual addresses stored in the eDOM's <code>vender</code> file. Without DSM, that step needs to be reproduced explicitly.</p>
+      <p>The preferred mechanism is a systemd <code>.link</code> file matched against the PCI path, allowing udev to assign the address while the interface is being created rather than changing it afterwards. This is particularly relevant on a headless system, where taking the active network interface down in order to change its MAC address can also remove the only available management path.</p>
+      <p>For example:</p>
+      <pre><span class="c"># /etc/systemd/network/10-lan1-mac.link</span>
+[Match]
+Path=pci-0000:01:00.0
+
+[Link]
+NamePolicy=path
+MACAddress=00:11:32:xx:xx:xx</pre>
+    </section>
+
+    <hr class="div">
+
+    <section>
+      <p class="kicker">In this case</p>
+      <h2>Why the operating system became TrueNAS</h2>
+      <p>Any of the usual Linux-based candidates could have been used once the hardware-specific dependencies above were addressed. TrueNAS was selected because three characteristics were particularly relevant for a system intended to remain permanently headless.</p>
+      <p>The first is ZFS throughout the storage stack, providing checksumming, snapshots and, importantly, a pool that can be moved to another system and imported with a conventional <code>zpool import</code>. The second is the combination of a web interface and API, which makes both the initial headless installation and virtually all subsequent administration possible over the network. The third is the appliance model itself, in which updates are represented as boot environments and can therefore be rolled back when required.</p>
+      <p>The corresponding trade-off is the persistence mechanism described above, because local changes outside the supported configuration model need to be restored after an update. In practice, that dependency is relatively small.</p>
+      <p>With Debian or Proxmox, the same hardware approach becomes somewhat simpler: the dataset and POST-INIT restoration step can be omitted, while the remaining boot, GPIO, MAC-address and hardware-control requirements remain essentially the same.</p>
+    </section>
+
+    <hr class="div">
+
+    <section>
+      <div class="part-head"><span class="part-num">6</span><h2>Two things not to do</h2></div>
+      <h3>Do not reconfigure the network without a recovery path</h3>
+      <p>On a headless DiskStation, the Ethernet connection is effectively the only management interface available during normal operation. Any change to interface naming, addressing, bridging or MAC configuration should therefore be made only when a recovery path already exists.</p>
+      <h3>Do not install drives beyond the chassis' intended power and thermal envelope</h3>
+      <p>Four 7200 rpm enterprise drives can bring the original 100 W power adapter close to its practical limit, while also increasing the thermal load inside a compact chassis. The lower-power 5400 rpm NAS drives around which the platform was designed operate with considerably more margin and, in this chassis, generally with less heat and noise.</p>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><span class="t">General rule</span> &mdash; When a Synology-specific hardware function does not operate under another operating system, the most useful first sources are DSM's own kernel command line and <code>rd.gz</code> on the eDOM. In this case, the information required to enable the drive bays had been present there throughout; DSM had simply been applying it without exposing the dependency.</p>
+    <p style="margin-top:14px"><span class="t">Applies to</span> &mdash; The implementation described here was tested on the DS916+ only. It may work on Intel-based models sharing the same general chassis and eDOM design, such as the DS918+ and DS920+, but this has not been tested. GPIO assignments, model identifiers and other board-level values are not necessarily identical and should be verified against the kernel command line and boot files of the individual system before being reused.</p>
+    <div class="disclaimer" id="disclaimer">
+      <p class="t" style="margin-bottom:8px">Disclaimer / Use at Your Own Risk</p>
+      <p>The information provided in this post is intended solely for informational and technical purposes. Any actions, modifications, commands, configurations, or procedures described in this post are carried out entirely <strong>at the user&rsquo;s own risk and responsibility</strong>.</p>
+      <p>The procedures described may, among other things, result in data loss, hardware damage or failure, loss of network access, system malfunction, loss of support or warranty coverage, and other direct or indirect damage. Some of the procedures involve direct interaction with boot processes, GPIO control, disk power management, firmware, and hardware configuration.</p>
+      <p>No warranty or representation is made that the methods described will be suitable, safe, or effective for devices, firmware versions, operating systems, or configurations other than the specific environment in which they were tested. Before applying any of the information, users should independently verify all relevant values, connections, GPIO assignments, configuration files, commands, and other device-specific parameters.</p>
+      <p>To the fullest extent permitted by applicable law, the author accepts no liability for any damage, data loss, consequential loss, system failure, costs, expenses, or other adverse consequences arising out of or in connection with the use of, or reliance on, the information contained in this post.</p>
+      <p>By carrying out any of the procedures described, the user acknowledges and accepts the associated risks and remains solely responsible for maintaining adequate backups, ensuring that an appropriate recovery method is available, and determining whether the procedures are suitable and safe for their particular system and circumstances.</p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
