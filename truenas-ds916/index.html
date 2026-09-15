@@ -269,8 +269,7 @@ MACAddress=00:11:32:xx:xx:xx</pre>
 
     <section>
       <p class="kicker">Network identity</p>
-      <h2>Give your ethernet ports a home</h2>
-      <p>Two ports. Two addresses. Just as it should be.</p>
+      <h2>Two ports. Two addresses. As it should be.</h2>
       <p>When a DiskStation is booted with something other than DSM, however, something rather unusual can happen. The machine has two Ethernet ports, yet both ports appear to use the same MAC address:</p>
       <pre>12:34:56:78:9A:BC</pre>
       <p>That address does not belong to this particular machine. In fact, it does not really belong to any specific machine at all. It is the default address used by Intel for i210 controllers when no individual MAC address has yet been programmed into the controller. On this DiskStation, that is exactly what happened: neither of the two network controllers was ever given its own hardware-stored address.</p>
