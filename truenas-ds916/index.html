@@ -74,7 +74,7 @@
   .note p{margin:0}
   .kicker{font-weight:600; font-size:12px; color:var(--muted); margin:0 0 8px; letter-spacing:-.01em}
 
-  ul{margin:0 0 18px; padding-left:1.2em} li{margin:8px 0}
+  ul,ol{margin:0 0 18px; padding-left:1.2em} li{margin:8px 0}
 
   footer{border-top:1px solid var(--rule); background:var(--surface); padding:34px 0 60px}
   footer .wrap{color:var(--muted); font-size:13px; line-height:1.5; letter-spacing:-.01em}
@@ -133,6 +133,47 @@
 <span class="p">$</span> umount /mnt/esp</pre>
       <p>There is no local display output, which leaves two conventional installation paths: install the operating system onto the SSD using another machine and subsequently move the SSD to the DiskStation, or operate the installer through the serial header <code>JP1</code>, using 3.3 V TTL at 115200 8N1.</p>
       <p>TrueNAS provides an additional option. Its installer exposes JSON-RPC on port 8080, allowing the installation process to be controlled over the network rather than through a local console.</p>
+    </section>
+
+    <hr class="div">
+
+    <section>
+      <p class="kicker">In practice</p>
+      <h2>Becoming <code>f400:f400</code></h2>
+      <p>The VID:PID is not stored in the USB controller itself but in a small configuration area that the controller reads at power-up: on a flash stick, a block written by the manufacturer&rsquo;s production tool; on a SATA bridge, an external SPI NVRAM chip on the board. Both can be rewritten. Two devices were given the Synology identity in this project, by two different routes.</p>
+
+      <h3>A flash stick, with Phison&rsquo;s production tool</h3>
+      <p>The stick used here (a Kingston DataTraveler) has a Phison PS2251-50 controller. Phison&rsquo;s mass-production tool, MPALL, writes the controller&rsquo;s configuration including VID, PID and the product strings. Three things must be matched before it will run:</p>
+      <ul>
+        <li>the exact controller and firmware version, read out with ChipGenius &mdash; here <code>PS2251-50, F/W 03.03.24, MLC-4K</code>;</li>
+        <li>the MPALL release whose bundled firmware file carries that same version &mdash; <code>FW50FF01V30324M-2@4k.BIN</code> in MPALL 3.18.00;</li>
+        <li>a Windows environment with a USB 2.0 controller, since a tool of that age does not recognise xHCI.</li>
+      </ul>
+      <p>In <code>MP.ini</code>, a copy of the original with only four lines changed:</p>
+      <pre>USB VID=<b>0xF400</b>
+USB PID=<b>0xF400</b>
+String Product Name=<b>DiskStation</b>
+Volume Label=<b>DiskStation</b></pre>
+      <p>MPALL then reports <code>Test Finished (PASS)</code>, and <code>lsusb</code> on another machine shows <code>f400:f400 DiskStation</code>. This stick is what made the first boot possible: it carried the loader and the extracted installer described in the next section.</p>
+
+      <h3>The SSD enclosure, with <code>jms578flash</code></h3>
+      <p>The SSD sits in a USB 3.0 enclosure with a JMicron JMS578 bridge (<code>152d:0578</code>). JMicron&rsquo;s own production tool did not recognise the enclosure&rsquo;s flash chip (an XTX XT25F01D, too recent for the tool&rsquo;s tables), so the open-source <code>jms578flash</code> was used instead.</p>
+      <ol>
+        <li>Add the flash chip to the tool&rsquo;s table (<code>spiflash/types.go</code>) using the parameters from flashrom&rsquo;s chip database &mdash; one added line, nothing else changed &mdash; and rebuild.</li>
+        <li>Read the full 50,688-byte firmware image out and keep it:
+<pre><span class="p">$</span> jms578flash -dev 152d:0578 -extract -firmware original.bin</pre></li>
+        <li>Locate the NVRAM block. It starts with the marker <code>55 AA AA 55</code>; the VID and PID follow as little-endian words at offsets <code>0xC400</code> and <code>0xC402</code> (<code>2D 15 78 05</code> for <code>152d:0578</code>), found exactly once in the image.</li>
+        <li>In a copy, change those four bytes to <code>00 F4 00 F4</code>; <code>cmp -l</code> must show exactly four differences.</li>
+        <li>Write the copy back:
+<pre><span class="p">$</span> jms578flash -dev 152d:0578 -flash -firmware f400.bin -unsafe</pre>
+          The tool recalculates the block&rsquo;s checksum on its own &mdash; the eight bytes preceding the VID changed after the write.</li>
+        <li>Power-cycle the enclosure physically. The controller reads its NVRAM only at power-up; a software re-enumeration is not enough. It then reports <code>f400:f400</code>.</li>
+      </ol>
+      <p>The SSD itself is not involved at any point; bridge and drive are separate chips.</p>
+      <div class="note">
+        <span class="tag">Caveat</span>
+        <p>Both procedures are specific to the controllers involved. A stick with a different controller needs that vendor&rsquo;s production tool and a matching firmware release; a bridge without external NVRAM has nothing to rewrite and cannot be given a new identity. Keep an unmodified read-out of every device before writing to it.</p>
+      </div>
     </section>
 
     <hr class="div">
