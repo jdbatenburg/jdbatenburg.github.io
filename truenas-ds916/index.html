@@ -156,7 +156,7 @@ done</pre>
           Run this from a systemd unit before ZFS, LVM, <code>mdadm</code>, or equivalent storage discovery/import.
           <a class="jump" href="#drive-bays">&rarr; 3 &middot; Turn the drive bays on</a></li>
         <li><b>Assign unique MAC addresses to both Intel i210 interfaces.</b><br>Read the original addresses from the eDOM <code>vender</code> file or use unique locally administered addresses. Apply them with per-interface <code>systemd .link</code> files matched by PCI path.
-          <a class="jump" href="#network-identity">&rarr; Two ports. Two addresses. As it should be.</a></li>
+          <a class="jump" href="#network-identity">&rarr; Two ports. Two addresses.</a></li>
         <li><b>Make all hardware-specific configuration persistent.</b><br>Persist GPIO power control, <code>.link</code> files, LED/fan configuration, and related scripts. On TrueNAS, store them outside <code>/etc</code> and restore them during POST-INIT, because updates can replace local <code>/etc</code> modifications.
           <a class="jump" href="#persistent">&rarr; 5 &middot; Make it persistent</a></li>
       </ol>
@@ -251,114 +251,52 @@ partition 3   FAT32, ~4 GB             the installer ISO, <b>extracted</b>      
 
     <section id="network-identity">
       <p class="kicker">Network identity</p>
-      <h2>Two ports. Two addresses. As it should be.</h2>
-      <p>When a DiskStation is booted with something other than DSM, however, something rather unusual can happen. The machine has two Ethernet ports, yet both ports appear to use the same MAC address:</p>
+      <h2>Two ports. Two addresses.</h2>
+      <p>Outside DSM, both Intel i210 controllers on a DS916+ can fall back to the same unprogrammed MAC:</p>
       <pre>12:34:56:78:9A:BC</pre>
-      <p>That address does not belong to this particular machine. In fact, it does not really belong to any specific machine at all. It is the default address used by Intel for i210 controllers when no individual MAC address has yet been programmed into the controller. On this DiskStation, that is exactly what happened: neither of the two network controllers was ever given its own hardware-stored address.</p>
-      <p>For DSM, this is not a problem. For virtually any other operating system, however, it is. A switch sees two physical ports presenting the same identity, DHCP reservations no longer behave as expected, and an otherwise perfectly functional machine can appear on the network as though its network hardware were defective.</p>
-      <p>The hardware, however, is not defective. The identity is simply missing.</p>
-
-      <h3>Synology solved it differently</h3>
-      <p>Synology chose not to program the MAC addresses directly into the Intel i210 controllers. Instead, the identity of the machine was stored on the eDOM, the small boot module inside the DiskStation. That eDOM contains a file named:</p>
-      <pre>vender</pre>
-      <p>Synology&rsquo;s customized version of GRUB also includes a dedicated command for processing that file:</p>
-      <pre>vender /vender -s</pre>
-      <p>This command reads the file and subsequently adds, among other things, the serial number and both MAC addresses to the kernel command line:</p>
-      <pre>sn=XXXXXXXXXXXX <span class="k">macs=001132aabbc1,001132aabbc2</span></pre>
-      <p>DSM then knows exactly what to do with that information. The customized kernel and the <code>synobios</code> module read these values while the network drivers are being initialized, before the network interfaces themselves become available.</p>
-      <p>That is an important detail. It means that the identity of the DiskStation is not permanently tied to the motherboard. Instead, it is tied to the boot module. Replace the motherboard while retaining the original eDOM, and the DiskStation retains both its serial number and its network addresses.</p>
-      <p>It is an elegant solution, but only as long as DSM is being used. Boot the machine into Linux, TrueNAS, or another operating system, and that mechanism disappears. The <code>vender</code> file is not read, the <code>macs=</code> parameter is not passed to the kernel, and both Intel controllers fall back to their default address:</p>
-      <pre>12:34:56:78:9A:BC</pre>
-      <p>Two physical ports, but only one identity.</p>
-
-      <h3>The solution does not need to be complicated</h3>
-      <p>The principle used by Synology is sound: read the correct addresses from the eDOM and assign them before the network interfaces become active. Doing so, however, does not require a customized kernel.</p>
-      <p>The same operation can be performed one layer higher, using <code>udev</code>. No kernel patch is required; a simple <code>systemd</code> <code>.link</code> file is sufficient.</p>
-      <p>Such a file can be matched against the PCI path of a specific network controller. As soon as the interface is created, <code>udev</code> applies the specified configuration. Not after the interface has already been brought online, and not after network traffic has already started flowing through it, but during creation of the interface itself.</p>
-      <p>As a result, an active network interface does not first need to be taken down in order to change its MAC address afterwards. This is particularly important when that same interface is the machine&rsquo;s only management connection.</p>
-      <p>The same principle works on distributions that use <code>systemd</code>, including TrueNAS systems where this systemd functionality is available.</p>
-
-      <h3>First: find the real MAC addresses</h3>
-      <p>The original MAC addresses of the DiskStation are stored in the <code>vender</code> file located on partition 2 of the original eDOM. The relevant data starts at offset:</p>
-      <pre>0xD0</pre>
-      <p>At that location are two MAC addresses of six bytes each, separated by an <code>ff</code>. The corresponding bytes can, for example, be read using:</p>
+      <p>DSM avoids this by reading both real MAC addresses from <code>/vender</code> on the eDOM and passing them through GRUB:</p>
+      <pre>vender /vender -s
+sn=XXXXXXXXXXXX macs=001132aabbc1,001132aabbc2</pre>
+      <p>DSM applies them before the network interfaces are created. Other operating systems do not.</p>
+      <p>On Linux &mdash; including TrueNAS SCALE &mdash; the same result can be achieved with systemd <code>.link</code> files matched to each controller&rsquo;s PCI path. udev applies them while the interface is being created, so no active port is ever taken down.</p>
+      <p>The original MAC addresses are stored in <code>vender</code> on eDOM partition 2, starting at offset <code>0xD0</code>:</p>
       <pre><span class="p">$</span> xxd -s 0xD0 -l 16 /path/to/vender</pre>
-      <p>The output may look like this:</p>
-      <pre>00d0: 0011 32aa bbc1 ff00 1132 aabb c2..</pre>
-      <p>From this, the two original MAC addresses can be derived:</p>
+      <p>Example:</p>
+      <pre>0011 32aa bbc1 ff00 1132 aabb c2</pre>
+      <p>becomes:</p>
       <pre>00:11:32:aa:bb:c1
 00:11:32:aa:bb:c2</pre>
-      <p>The prefix <code>00:11:32</code> is the OUI associated with Synology.</p>
-      <p>If the original eDOM is no longer available, two locally administered MAC addresses can be used instead. With a locally administered unicast address, the relevant bit in the first octet is set; in practice, this results in first octets such as <code>02</code>, <code>06</code>, <code>0A</code>, or <code>0E</code>.</p>
-      <p>A simple example would be:</p>
+      <p>You do not have to use the original addresses. You can choose your own unique locally administered unicast MAC addresses; the second hex digit of the first octet must be <code>2</code>, <code>6</code>, <code>A</code> or <code>E</code>:</p>
       <pre>02:00:00:00:00:01
 02:00:00:00:00:02</pre>
-      <p>For the local network, the most important requirement is that both interfaces receive a unique address and therefore no longer present the same identity.</p>
-
-      <h3>Next: determine which port is which</h3>
-      <p>Before assigning the MAC addresses, you need to determine which physical Ethernet port belongs to which PCI device. This can, for example, be checked with:</p>
-      <pre><span class="p">$</span> for i in /sys/class/net/en*; do echo "$(basename $i) $(readlink -f $i/device)"; done</pre>
-      <p>A possible result is:</p>
-      <pre>enpAs0 /sys/devices/pci0000:00/0000:00:1c.0/0000:0a:00.0
-enpBs0 /sys/devices/pci0000:00/0000:00:1c.1/0000:0b:00.0</pre>
-      <p>This shows which network interface is associated with which PCI path. In principle, that is all <code>systemd</code> needs to know.</p>
-
-      <h3>One file per port</h3>
-      <p>Next, create a separate <code>.link</code> file for each network controller in:</p>
-      <pre>/etc/systemd/network/</pre>
-      <p>For the first port, that could for example be:</p>
+      <p>Find each interface&rsquo;s PCI path:</p>
+      <pre><span class="p">$</span> for i in /sys/class/net/en*; do
+    echo "$(basename $i) $(readlink -f $i/device)"
+done</pre>
+      <p>Then create one file per controller:</p>
       <pre><span class="c"># /etc/systemd/network/10-lan1-mac.link</span>
+
 [Match]
 Path=pci-0000:0a:00.0
 
 [Link]
 NamePolicy=path
-MACAddress=<b>00:11:32:aa:bb:c1</b></pre>
-      <p>For the second port:</p>
+MACAddress=00:11:32:aa:bb:c1</pre>
+      <p>and:</p>
       <pre><span class="c"># /etc/systemd/network/10-lan2-mac.link</span>
+
 [Match]
 Path=pci-0000:0b:00.0
 
 [Link]
 NamePolicy=path
-MACAddress=<b>00:11:32:aa:bb:c2</b></pre>
-      <p>The <code>Path=</code> setting ensures that the configuration is associated with the correct physical PCI controller, while <code>MACAddress=</code> assigns the desired MAC address to that controller.</p>
-      <p>The line:</p>
-      <pre>NamePolicy=path</pre>
-      <p>instructs <code>systemd</code> to use path-based predictable interface naming. If the existing interface name is already derived from that same hardware path, it will in practice remain unchanged.</p>
-      <p>The interface therefore receives its proper network identity without requiring the MAC address to be changed afterwards.</p>
-      <p>Reboot the machine and then verify the interfaces with:</p>
+MACAddress=00:11:32:aa:bb:c2</pre>
+      <p>Reboot and verify:</p>
       <pre><span class="p">$</span> ip -br link</pre>
-      <p>The result should look something like:</p>
-      <pre>enpAs0  UP    00:11:32:aa:bb:c1 ...
-enpBs0  DOWN  00:11:32:aa:bb:c2 ...</pre>
-      <p>Two controllers. Two addresses. Just as it should have been all along.</p>
-
-      <h3>One detail that makes the difference</h3>
-      <p>There is one practical detail that is easy to overlook: the MAC address associated with the DHCP reservation must be assigned to the physical port into which the network cable is actually connected.</p>
-      <p>That sounds obvious, until LAN1 and LAN2 turn out to have been reversed in the configuration.</p>
-      <p>An even more robust option may be to assign a static IP address to the active management interface. This makes the machine&rsquo;s accessibility less dependent on the combination of a specific MAC address and a DHCP reservation.</p>
-
-      <h3>TrueNAS requires one additional step</h3>
-      <p>With TrueNAS, it is important to take into account that changes under <code>/etc</code> should not automatically be considered persistent configuration. After an update, manually created <code>.link</code> files may therefore disappear.</p>
-      <p>To prevent that, the files can be stored in a persistent location, for example on the same ZFS dataset used for other Synology-specific configuration. A POST-INIT script can then be used to restore the files to:</p>
-      <pre>/etc/systemd/network/</pre>
-      <p>during boot.</p>
-      <p>The same principle can be applied to other hardware-specific configuration required for the DiskStation to operate correctly outside DSM, for example configuration related to the drive bays.</p>
-      <p>Without this persistence layer, the first reboot following a TrueNAS update may return the machine to its original state:</p>
-      <pre>12:34:56:78:9A:BC
-12:34:56:78:9A:BC</pre>
-      <p>The machine is running and the network is technically operational, but the system no longer appears where you expect it to based on the normal network configuration.</p>
-
-      <h3>Not a hack, but a missing layer</h3>
-      <p>This solution does not modify the network hardware and does not require a patched kernel. Nor does it attempt to recreate DSM.</p>
-      <p>It merely reproduces one function that DSM has always performed: reading the identity of the machine and applying that identity before the network interfaces are actually put into use.</p>
-      <p>Only now, it is done using standard Linux mechanisms: <code>udev</code>. <code>systemd</code>. And two small <code>.link</code> files. Nothing more is required.</p>
-
-      <div class="note">
-        <span class="tag">Caveat</span>
-        <p>This method has been verified on a DS916+ equipped with two Intel i210 Ethernet controllers. Other DiskStation models may, however, use different network controllers, different PCI paths, and possibly a different layout of the <code>vender</code> file. The values shown in this example should therefore never be copied blindly. First determine the PCI paths on your own machine, then verify the contents and relevant offsets of your own <code>vender</code> file, and only after that create the final configuration. The solution itself is technically straightforward. That is precisely why every detail needs to be correct.</p>
-      </div>
+      <p>Make sure the MAC used by your DHCP reservation lands on the port with the cable; a static management IP avoids that dependency entirely.</p>
+      <p>On TrueNAS SCALE, keep the <code>.link</code> files on persistent storage and restore them to <code>/etc/systemd/network/</code> during boot, because changes under <code>/etc</code> may not survive updates.</p>
+      <p>Verified on a DS916+ with two Intel i210 controllers. Other models may use different PCI paths or a different <code>vender</code> layout, so determine those values on the actual machine rather than copying them.</p>
+      <p>No kernel patch. No DSM emulation. Just give each port its own identity before the network comes up.</p>
     </section>
 
     <hr class="div">
