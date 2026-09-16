@@ -134,18 +134,20 @@
       <h2>Quick implementation</h2>
       <p>For a Synology DS916+, the minimum required path is:</p>
       <ol class="steps">
-        <li><b>Prepare a boot device that enumerates as <code>f400:f400</code>.</b><a class="jump" href="#boot-check">&rarr; 1</a><br>Use a USB device or SATA-to-USB bridge whose VID:PID can be rewritten. A JMS578 bridge is known to work.
+        <li><b>Prepare a boot device that enumerates as <code>f400:f400</code>.</b><a class="jump" href="#boot-check">&rarr; Get past the boot check</a><br>Use a USB device or SATA-to-USB bridge whose VID:PID can be rewritten. A JMS578 bridge is known to work.
 </li>
         <li><b>Install the target OS to the boot SSD and duplicate its EFI loader:</b>
 <pre><span class="p">$</span> mount /dev/sdX2 /mnt/esp
 <span class="p">$</span> cp /mnt/esp/EFI/boot/bootx64.efi /mnt/esp/EFI/boot/<b>SynoBootLoader.efi</b>
 <span class="p">$</span> umount /mnt/esp</pre></li>
-        <li><b>For installation, keep the EFI loader and installer on the same physical USB device.</b><a class="jump" href="#two-partitions">&rarr; 2</a> Recommended layout:
+        <li><b>For installation, keep the EFI loader and installer on the same physical USB device.</b><a class="jump" href="#two-partitions">&rarr; One device, two partitions</a> Recommended layout:
 <pre>p1  FAT16   16 MB     EFI loader
 p3  FAT32   ~4 GB     extracted installer ISO</pre>
           Do not write the installer ISO raw; extract its contents to FAT32.</li>
         <li><b>Boot and install the OS.</b><br>TrueNAS can be installed headlessly over the network; other Linux distributions may require serial access or installation on another machine first.</li>
-        <li><b>Power the four internal drive bays before storage services start:</b><a class="jump" href="#drive-bays">&rarr; 3</a>
+        <li><b>Assign unique MAC addresses to both Intel i210 interfaces.</b><a class="jump" href="#network-identity">&rarr; Two ports. Two addresses.</a><br>Read the original addresses from the eDOM <code>vender</code> file or use unique locally administered addresses. Apply them with per-interface <code>systemd .link</code> files matched by PCI path.
+</li>
+        <li><b>Power the four internal drive bays before storage services start:</b><a class="jump" href="#drive-bays">&rarr; Turn the drive bays on</a>
 <pre><span class="p">#</span> for line in 615 614 631 612; do
     echo "$line" &gt; /sys/class/gpio/export
     echo high &gt; /sys/class/gpio/gpio$line/direction
@@ -153,9 +155,7 @@ p3  FAT32   ~4 GB     extracted installer ISO</pre>
 done</pre>
           Run this from a systemd unit before ZFS, LVM, <code>mdadm</code>, or equivalent storage discovery/import.
 </li>
-        <li><b>Assign unique MAC addresses to both Intel i210 interfaces.</b><a class="jump" href="#network-identity">&rarr; MAC</a><br>Read the original addresses from the eDOM <code>vender</code> file or use unique locally administered addresses. Apply them with per-interface <code>systemd .link</code> files matched by PCI path.
-</li>
-        <li><b>Make all hardware-specific configuration persistent.</b><a class="jump" href="#persistent">&rarr; 5</a><br>Persist GPIO power control, <code>.link</code> files, LED/fan configuration, and related scripts. On TrueNAS, store them outside <code>/etc</code> and restore them during POST-INIT, because updates can replace local <code>/etc</code> modifications.
+        <li><b>Make all hardware-specific configuration persistent.</b><a class="jump" href="#persistent">&rarr; Make it persistent</a><br>Persist GPIO power control, <code>.link</code> files, LED/fan configuration, and related scripts. On TrueNAS, store them outside <code>/etc</code> and restore them during POST-INIT, because updates can replace local <code>/etc</code> modifications.
 </li>
       </ol>
 
@@ -164,7 +164,7 @@ done</pre>
       <pre>Boot device &rarr; USB VID:PID <b>f400:f400</b>
 Drive bays  &rarr; GPIO <b>615, 614, 631, 612</b> = HIGH</pre>
       <p>Everything else &mdash; MAC restoration, LEDs, fan control, disk sleep and update persistence &mdash; is integration work.</p>
-      <p class="jump-row"><a class="jump" href="#f400">&rarr; Becoming f400:f400</a><a class="jump" href="#drive-bays">&rarr; 3 &middot; Turn the drive bays on</a><a class="jump" href="#lights-fan-sleep">&rarr; 4 &middot; Lights, fan and sleep</a></p>
+      <p class="jump-row"><a class="jump" href="#f400">&rarr; Becoming f400:f400</a><a class="jump" href="#drive-bays">&rarr; Turn the drive bays on</a><a class="jump" href="#lights-fan-sleep">&rarr; Lights, fan and sleep</a></p>
       <p>Tested configuration: DS916+ / Intel Pentium N3710 / TrueNAS SCALE 25.10.</p>
       <div class="note">
         <span class="tag">Caveat</span>
