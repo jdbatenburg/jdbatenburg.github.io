@@ -75,6 +75,9 @@
   .kicker{font-weight:600; font-size:12px; color:var(--muted); margin:0 0 8px; letter-spacing:-.01em}
 
   ul,ol{margin:0 0 18px; padding-left:1.2em} li{margin:8px 0}
+  .jump{display:inline-block; margin-top:7px; font-size:12px; letter-spacing:-.01em; color:var(--muted)}
+  .jump:hover{color:var(--accent-ink)}
+  section[id]{scroll-margin-top:24px}
 
   footer{border-top:1px solid var(--rule); background:var(--surface); padding:34px 0 60px}
   footer .wrap{color:var(--muted); font-size:13px; line-height:1.5; letter-spacing:-.01em}
@@ -129,25 +132,32 @@
       <h2>Quick implementation</h2>
       <p>For a Synology DS916+, the minimum required path is:</p>
       <ol>
-        <li><b>Prepare a boot device that enumerates as <code>f400:f400</code>.</b><br>Use a USB device or SATA-to-USB bridge whose VID:PID can be rewritten. A JMS578 bridge is known to work.</li>
+        <li><b>Prepare a boot device that enumerates as <code>f400:f400</code>.</b><br>Use a USB device or SATA-to-USB bridge whose VID:PID can be rewritten. A JMS578 bridge is known to work.
+          <a class="jump" href="#boot-check">&rarr; 1 &middot; Get past the boot check</a></li>
         <li><b>Install the target OS to the boot SSD and duplicate its EFI loader:</b>
 <pre><span class="p">$</span> mount /dev/sdX2 /mnt/esp
 <span class="p">$</span> cp /mnt/esp/EFI/boot/bootx64.efi /mnt/esp/EFI/boot/<b>SynoBootLoader.efi</b>
-<span class="p">$</span> umount /mnt/esp</pre></li>
+<span class="p">$</span> umount /mnt/esp</pre>
+          <a class="jump" href="#boot-check">&rarr; 1 &middot; Get past the boot check</a></li>
         <li><b>For installation, keep the EFI loader and installer on the same physical USB device.</b> Recommended layout:
 <pre>p1  FAT16   16 MB     EFI loader
 p3  FAT32   ~4 GB     extracted installer ISO</pre>
-          Do not write the installer ISO raw; extract its contents to FAT32.</li>
-        <li><b>Boot and install the OS.</b><br>TrueNAS can be installed headlessly over the network; other Linux distributions may require serial access or installation on another machine first.</li>
+          Do not write the installer ISO raw; extract its contents to FAT32.
+          <a class="jump" href="#two-partitions">&rarr; 2 &middot; One device, two partitions</a></li>
+        <li><b>Boot and install the OS.</b><br>TrueNAS can be installed headlessly over the network; other Linux distributions may require serial access or installation on another machine first.
+          <a class="jump" href="#two-partitions">&rarr; 2 &middot; One device, two partitions</a></li>
         <li><b>Power the four internal drive bays before storage services start:</b>
 <pre><span class="p">#</span> for line in 615 614 631 612; do
     echo "$line" &gt; /sys/class/gpio/export
     echo high &gt; /sys/class/gpio/gpio$line/direction
     sleep 3
 done</pre>
-          Run this from a systemd unit before ZFS, LVM, <code>mdadm</code>, or equivalent storage discovery/import.</li>
-        <li><b>Assign unique MAC addresses to both Intel i210 interfaces.</b><br>Read the original addresses from the eDOM <code>vender</code> file or use unique locally administered addresses. Apply them with per-interface <code>systemd .link</code> files matched by PCI path.</li>
-        <li><b>Make all hardware-specific configuration persistent.</b><br>Persist GPIO power control, <code>.link</code> files, LED/fan configuration, and related scripts. On TrueNAS, store them outside <code>/etc</code> and restore them during POST-INIT, because updates can replace local <code>/etc</code> modifications.</li>
+          Run this from a systemd unit before ZFS, LVM, <code>mdadm</code>, or equivalent storage discovery/import.
+          <a class="jump" href="#drive-bays">&rarr; 3 &middot; Turn the drive bays on</a></li>
+        <li><b>Assign unique MAC addresses to both Intel i210 interfaces.</b><br>Read the original addresses from the eDOM <code>vender</code> file or use unique locally administered addresses. Apply them with per-interface <code>systemd .link</code> files matched by PCI path.
+          <a class="jump" href="#network-identity">&rarr; Two ports. Two addresses. As it should be.</a></li>
+        <li><b>Make all hardware-specific configuration persistent.</b><br>Persist GPIO power control, <code>.link</code> files, LED/fan configuration, and related scripts. On TrueNAS, store them outside <code>/etc</code> and restore them during POST-INIT, because updates can replace local <code>/etc</code> modifications.
+          <a class="jump" href="#persistent">&rarr; 5 &middot; Make it persistent</a></li>
       </ol>
 
       <h3>Minimum functional configuration</h3>
@@ -155,6 +165,7 @@ done</pre>
       <pre>Boot device &rarr; USB VID:PID <b>f400:f400</b>
 Drive bays  &rarr; GPIO <b>615, 614, 631, 612</b> = HIGH</pre>
       <p>Everything else &mdash; MAC restoration, LEDs, fan control, disk sleep and update persistence &mdash; is integration work.</p>
+      <p><a class="jump" href="#f400">&rarr; Becoming f400:f400</a> &nbsp; <a class="jump" href="#drive-bays">&rarr; 3 &middot; Turn the drive bays on</a> &nbsp; <a class="jump" href="#lights-fan-sleep">&rarr; 4 &middot; Lights, fan and sleep</a></p>
       <p>Tested configuration: DS916+ / Intel Pentium N3710 / TrueNAS SCALE 25.10.</p>
       <div class="note">
         <span class="tag">Caveat</span>
@@ -164,7 +175,7 @@ Drive bays  &rarr; GPIO <b>615, 614, 631, 612</b> = HIGH</pre>
 
     <hr class="div">
 
-    <section>
+    <section id="boot-check">
       <div class="part-head"><span class="part-num">1</span><h2>Get past the boot check</h2></div>
       <p>The DiskStation boots from a small internal USB module, the eDOM, connected to header <code>J2</code>. The firmware will start a USB device provided that two conditions are met: the device identifies itself as USB <code>f400:f400</code>, and it contains a file named <code>\EFI\boot\SynoBootLoader.efi</code>.</p>
       <p>That file is, however, simply an unsigned GRUB EFI executable; there is no cryptographic verification of its contents. As a result, any compatible EFI loader placed under that filename is executed. The practical approach is therefore to install the operating system of choice onto an SSD in a USB enclosure whose VID:PID can be changed to <code>f400:f400</code> &mdash; a JMicron JMS578 bridge is suitable for this &mdash; after which the operating system's own EFI loader can be copied to the filename expected by the Synology firmware:</p>
@@ -177,7 +188,7 @@ Drive bays  &rarr; GPIO <b>615, 614, 631, 612</b> = HIGH</pre>
 
     <hr class="div">
 
-    <section>
+    <section id="f400">
       <p class="kicker">In practice</p>
       <h2>Becoming <code>f400:f400</code></h2>
       <p>The VID:PID is not stored in the USB controller itself but in a small configuration area that the controller reads at power-up: on a flash stick, a block written by the manufacturer&rsquo;s production tool; on a SATA bridge, an external SPI NVRAM chip on the board. Both can be rewritten. Two devices were given the Synology identity in this project, by two different routes.</p>
@@ -218,7 +229,7 @@ Volume Label=<b>DiskStation</b></pre>
 
     <hr class="div">
 
-    <section>
+    <section id="two-partitions">
       <div class="part-head"><span class="part-num">2</span><h2>One device, two partitions</h2></div>
       <p>During the initial UEFI stage, the firmware exposes effectively one relevant device to the loader: the <code>f400:f400</code> device from which it booted. From GRUB's perspective, a second USB stick or a SATA disk is therefore not available at the point where the EFI program starts.</p>
       <p>This distinction matters because an installer placed on another device may consequently remain invisible to GRUB. A loader that subsequently searches for files on such a device can end up at its <code>rescue</code> prompt; on a headless system without video output, that behaviour is externally indistinguishable from a machine that has simply stopped booting.</p>
@@ -237,7 +248,7 @@ partition 3   FAT32, ~4 GB             the installer ISO, <b>extracted</b>      
 
     <hr class="div">
 
-    <section>
+    <section id="network-identity">
       <p class="kicker">Network identity</p>
       <h2>Two ports. Two addresses. As it should be.</h2>
       <p>When a DiskStation is booted with something other than DSM, however, something rather unusual can happen. The machine has two Ethernet ports, yet both ports appear to use the same MAC address:</p>
@@ -351,7 +362,7 @@ enpBs0  DOWN  00:11:32:aa:bb:c2 ...</pre>
 
     <hr class="div">
 
-    <section>
+    <section id="drive-bays">
       <div class="part-head"><span class="part-num">3</span><h2>Turn the drive bays on</h2></div>
       <p>At this stage the operating system itself can boot successfully, but the internal drive bays may still appear to contain no disks. The underlying issue is not SATA detection but power: the bays are switched through four SoC GPIO lines which the BIOS leaves low and which DSM normally raises during its own boot sequence.</p>
       <p>The required pin numbers can be found in DSM's kernel command line on the eDOM:</p>
@@ -386,7 +397,7 @@ enpBs0  DOWN  00:11:32:aa:bb:c2 ...</pre>
 
     <hr class="div">
 
-    <section>
+    <section id="lights-fan-sleep">
       <div class="part-head"><span class="part-num">4</span><h2>Lights, fan and sleep</h2></div>
       <p>The remaining hardware is accessible through standard interfaces, although DSM normally hides most of the relevant implementation details.</p>
       <ul>
@@ -398,7 +409,7 @@ enpBs0  DOWN  00:11:32:aa:bb:c2 ...</pre>
 
     <hr class="div">
 
-    <section>
+    <section id="persistent">
       <div class="part-head"><span class="part-num">5</span><h2>Make it persistent</h2></div>
       <p>On a conventional Linux distribution, persistence is relatively straightforward because scripts and systemd units stored in <code>/etc</code> remain in place. Appliance-style operating systems introduce an additional dependency, however: on TrueNAS, <code>/etc</code> is writable during normal operation but is reset as part of an update.</p>
       <p>The required files can therefore be retained on a small ZFS dataset and restored during POST-INIT:</p>
