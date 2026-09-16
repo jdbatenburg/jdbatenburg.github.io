@@ -77,6 +77,13 @@
   ul,ol{margin:0 0 18px; padding-left:1.2em} li{margin:8px 0}
   .jump{display:block; margin-top:7px; font-size:12px; letter-spacing:-.01em; color:var(--muted)}
   .jump-row .jump{display:inline-block; margin-right:18px}
+  @media (min-width:1200px){
+    .steps>li, .mincfg{position:relative}
+    .steps>li>.jump, .mincfg>.jump-row{
+      position:absolute; top:3px; right:calc(100% + 20px);
+      width:220px; text-align:right; margin:0}
+    .mincfg>.jump-row .jump{display:block; margin:0 0 4px}
+  }
   .jump:hover{color:var(--accent-ink)}
   section[id]{scroll-margin-top:24px}
 
@@ -132,21 +139,19 @@
       <p class="kicker">Summary</p>
       <h2>Quick implementation</h2>
       <p>For a Synology DS916+, the minimum required path is:</p>
-      <ol>
+      <ol class="steps">
         <li><b>Prepare a boot device that enumerates as <code>f400:f400</code>.</b><br>Use a USB device or SATA-to-USB bridge whose VID:PID can be rewritten. A JMS578 bridge is known to work.
           <a class="jump" href="#boot-check">&rarr; 1 &middot; Get past the boot check</a></li>
         <li><b>Install the target OS to the boot SSD and duplicate its EFI loader:</b>
 <pre><span class="p">$</span> mount /dev/sdX2 /mnt/esp
 <span class="p">$</span> cp /mnt/esp/EFI/boot/bootx64.efi /mnt/esp/EFI/boot/<b>SynoBootLoader.efi</b>
-<span class="p">$</span> umount /mnt/esp</pre>
-          <a class="jump" href="#boot-check">&rarr; 1 &middot; Get past the boot check</a></li>
+<span class="p">$</span> umount /mnt/esp</pre></li>
         <li><b>For installation, keep the EFI loader and installer on the same physical USB device.</b> Recommended layout:
 <pre>p1  FAT16   16 MB     EFI loader
 p3  FAT32   ~4 GB     extracted installer ISO</pre>
           Do not write the installer ISO raw; extract its contents to FAT32.
           <a class="jump" href="#two-partitions">&rarr; 2 &middot; One device, two partitions</a></li>
-        <li><b>Boot and install the OS.</b><br>TrueNAS can be installed headlessly over the network; other Linux distributions may require serial access or installation on another machine first.
-          <a class="jump" href="#two-partitions">&rarr; 2 &middot; One device, two partitions</a></li>
+        <li><b>Boot and install the OS.</b><br>TrueNAS can be installed headlessly over the network; other Linux distributions may require serial access or installation on another machine first.</li>
         <li><b>Power the four internal drive bays before storage services start:</b>
 <pre><span class="p">#</span> for line in 615 614 631 612; do
     echo "$line" &gt; /sys/class/gpio/export
@@ -162,11 +167,13 @@ done</pre>
       </ol>
 
       <h3>Minimum functional configuration</h3>
+      <div class="mincfg">
       <p>The system only needs two hardware-specific modifications to become operational:</p>
       <pre>Boot device &rarr; USB VID:PID <b>f400:f400</b>
 Drive bays  &rarr; GPIO <b>615, 614, 631, 612</b> = HIGH</pre>
       <p>Everything else &mdash; MAC restoration, LEDs, fan control, disk sleep and update persistence &mdash; is integration work.</p>
       <p class="jump-row"><a class="jump" href="#f400">&rarr; Becoming f400:f400</a><a class="jump" href="#drive-bays">&rarr; 3 &middot; Turn the drive bays on</a><a class="jump" href="#lights-fan-sleep">&rarr; 4 &middot; Lights, fan and sleep</a></p>
+      </div>
       <p>Tested configuration: DS916+ / Intel Pentium N3710 / TrueNAS SCALE 25.10.</p>
       <div class="note">
         <span class="tag">Caveat</span>
