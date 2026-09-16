@@ -125,6 +125,46 @@
   <div class="wrap">
 
     <section>
+      <p class="kicker">Summary</p>
+      <h2>Quick implementation</h2>
+      <p>For a Synology DS916+, the minimum required path is:</p>
+      <ol>
+        <li><b>Prepare a boot device that enumerates as <code>f400:f400</code>.</b><br>Use a USB device or SATA-to-USB bridge whose VID:PID can be rewritten. A JMS578 bridge is known to work.</li>
+        <li><b>Install the target OS to the boot SSD and duplicate its EFI loader:</b>
+<pre><span class="p">$</span> mount /dev/sdX2 /mnt/esp
+<span class="p">$</span> cp /mnt/esp/EFI/boot/bootx64.efi /mnt/esp/EFI/boot/<b>SynoBootLoader.efi</b>
+<span class="p">$</span> umount /mnt/esp</pre></li>
+        <li><b>For installation, keep the EFI loader and installer on the same physical USB device.</b> Recommended layout:
+<pre>p1  FAT16   16 MB     EFI loader
+p3  FAT32   ~4 GB     extracted installer ISO</pre>
+          Do not write the installer ISO raw; extract its contents to FAT32.</li>
+        <li><b>Boot and install the OS.</b><br>TrueNAS can be installed headlessly over the network; other Linux distributions may require serial access or installation on another machine first.</li>
+        <li><b>Power the four internal drive bays before storage services start:</b>
+<pre><span class="p">#</span> for line in 615 614 631 612; do
+    echo "$line" &gt; /sys/class/gpio/export
+    echo high &gt; /sys/class/gpio/gpio$line/direction
+    sleep 3
+done</pre>
+          Run this from a systemd unit before ZFS, LVM, <code>mdadm</code>, or equivalent storage discovery/import.</li>
+        <li><b>Assign unique MAC addresses to both Intel i210 interfaces.</b><br>Read the original addresses from the eDOM <code>vender</code> file or use unique locally administered addresses. Apply them with per-interface <code>systemd .link</code> files matched by PCI path.</li>
+        <li><b>Make all hardware-specific configuration persistent.</b><br>Persist GPIO power control, <code>.link</code> files, LED/fan configuration, and related scripts. On TrueNAS, store them outside <code>/etc</code> and restore them during POST-INIT, because updates can replace local <code>/etc</code> modifications.</li>
+      </ol>
+
+      <h3>Minimum functional configuration</h3>
+      <p>The system only needs two hardware-specific modifications to become operational:</p>
+      <pre>Boot device &rarr; USB VID:PID <b>f400:f400</b>
+Drive bays  &rarr; GPIO <b>615, 614, 631, 612</b> = HIGH</pre>
+      <p>Everything else &mdash; MAC restoration, LEDs, fan control, disk sleep and update persistence &mdash; is integration work.</p>
+      <p>Tested configuration: DS916+ / Intel Pentium N3710 / TrueNAS SCALE 25.10.</p>
+      <div class="note">
+        <span class="tag">Caveat</span>
+        <p>Do not reuse GPIO numbers, PCI paths or firmware offsets on another DiskStation model without verifying them against that system&rsquo;s own eDOM, kernel command line and hardware layout.</p>
+      </div>
+    </section>
+
+    <hr class="div">
+
+    <section>
       <div class="part-head"><span class="part-num">1</span><h2>Get past the boot check</h2></div>
       <p>The DiskStation boots from a small internal USB module, the eDOM, connected to header <code>J2</code>. The firmware will start a USB device provided that two conditions are met: the device identifies itself as USB <code>f400:f400</code>, and it contains a file named <code>\EFI\boot\SynoBootLoader.efi</code>.</p>
       <p>That file is, however, simply an unsigned GRUB EFI executable; there is no cryptographic verification of its contents. As a result, any compatible EFI loader placed under that filename is executed. The practical approach is therefore to install the operating system of choice onto an SSD in a USB enclosure whose VID:PID can be changed to <code>f400:f400</code> &mdash; a JMicron JMS578 bridge is suitable for this &mdash; after which the operating system's own EFI loader can be copied to the filename expected by the Synology firmware:</p>
@@ -193,76 +233,6 @@ partition 3   FAT32, ~4 GB             the installer ISO, <b>extracted</b>      
         <span class="tag">Caveat</span>
         <p>This configuration was verified on a DS916+ running TrueNAS SCALE 25.10. Other DiskStation models may expose additional devices during the UEFI stage, while other installers may use different mechanisms to locate their installation media. It is therefore advisable to inspect the loader's embedded <code>grub.cfg</code> before assuming that the partition layout above is required unchanged.</p>
       </div>
-    </section>
-
-    <hr class="div">
-
-    <section>
-      <div class="part-head"><span class="part-num">3</span><h2>Turn the drive bays on</h2></div>
-      <p>At this stage the operating system itself can boot successfully, but the internal drive bays may still appear to contain no disks. The underlying issue is not SATA detection but power: the bays are switched through four SoC GPIO lines which the BIOS leaves low and which DSM normally raises during its own boot sequence.</p>
-      <p>The required pin numbers can be found in DSM's kernel command line on the eDOM:</p>
-      <pre><span class="k">syno_hdd_enable=61,60,71,58</span></pre>
-      <p>On a mainline kernel, these correspond to the following lines on <code>gpiochip1</code>, labelled <code>INT33FF:01</code>:</p>
-      <div class="tablewrap">
-        <table>
-          <thead><tr><th>Bay</th><th class="mono">Synology GPIO</th><th class="mono">Mainline GPIO line</th></tr></thead>
-          <tbody>
-            <tr><td>1</td><td class="mono">61</td><td class="mono">615</td></tr>
-            <tr><td>2</td><td class="mono">60</td><td class="mono">614</td></tr>
-            <tr><td>3</td><td class="mono">71</td><td class="mono">631</td></tr>
-            <tr><td>4</td><td class="mono">58</td><td class="mono">612</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <p>The bays can then be powered as follows:</p>
-      <pre><span class="p">#</span> for line in 615 614 631 612; do
-    echo $line &gt; /sys/class/gpio/export
-    echo <b>high</b> &gt; /sys/class/gpio/gpio$line/direction   <span class="c"># one write; "out" then "1" dips the rail</span>
-    sleep 3                                            <span class="c"># stagger the spin-up</span>
-  done</pre>
-      <p>The use of <code>high</code> in a single write is deliberate. Writing <code>out</code> first and subsequently writing <code>1</code> briefly changes the state of the line, causing the corresponding power rail to dip.</p>
-      <p>This sequence should be placed in a systemd unit and executed before any service that expects the storage devices to be present, including <code>mdadm</code>, LVM or ZFS pool import. On TrueNAS, the relevant ordering is:</p>
-      <pre>Before=ix-wait-on-disks.service zfs-import.target middlewared.service</pre>
-      <p>With that dependency in place, the drives are powered and available during every normal boot.</p>
-      <div class="note win">
-        <span class="tag">Minimum working configuration</span>
-        <p>At this point the essential hardware dependencies have been addressed. Satisfying the boot check and enabling power to the drive bays is sufficient to obtain a functional system independently of the operating system being used; the remaining work concerns integration features such as LEDs, fan control, disk sleep and persistence across updates.</p>
-      </div>
-    </section>
-
-    <hr class="div">
-
-    <section>
-      <div class="part-head"><span class="part-num">4</span><h2>Lights, fan and sleep</h2></div>
-      <p>The remaining hardware is accessible through standard interfaces, although DSM normally hides most of the relevant implementation details.</p>
-      <ul>
-        <li>Tray LEDs are controlled by a TI LP3943 at I&sup2;C address <code>0x60</code> on <code>i2c-1</code>, with access gated by GPIO line <code>661</code>. The logic on this board is inverted: register value <code>00</code> means on, while <code>01</code> means off. For bay N, the green LED is channel <code>2(N&minus;1)</code> and the orange LED is channel <code>2(N&minus;1)+1</code>.</li>
-        <li>The fan, status LED and buzzer are controlled by a microcontroller connected to <code>/dev/ttyS1</code> at 9600 8N1. It accepts single ASCII commands, including <code>Vnn</code> for fan duty and <code>7</code>, <code>8</code> and <code>9</code> for status LED off, on and blink respectively. Commands <code>1</code> and <code>C</code> must not be sent: they trigger power-off and reset immediately.</li>
-        <li>DSM-like disk sleep can be approximated by enabling EPC on the drives with <code>sg_sat_set_features --feature=0x4a</code>, providing a low-RPM idle state, followed by <code>hdparm -y</code> when the entire group has remained inactive for a longer period. One dependency needs particular attention: any ATA command, including a seemingly harmless <code>hdparm -C</code> issued by monitoring software, restarts the relevant timers. Monitoring should therefore avoid polling disks that have not already generated I/O.</li>
-      </ul>
-    </section>
-
-    <hr class="div">
-
-    <section>
-      <div class="part-head"><span class="part-num">5</span><h2>Make it persistent</h2></div>
-      <p>On a conventional Linux distribution, persistence is relatively straightforward because scripts and systemd units stored in <code>/etc</code> remain in place. Appliance-style operating systems introduce an additional dependency, however: on TrueNAS, <code>/etc</code> is writable during normal operation but is reset as part of an update.</p>
-      <p>The required files can therefore be retained on a small ZFS dataset and restored during POST-INIT:</p>
-      <pre><span class="p">#</span> zfs create -o mountpoint=legacy boot-pool/syno-hdd-power
-<span class="c"># TrueNAS &rarr; System &rarr; Advanced &rarr; Init/Shutdown Scripts, POSTINIT:</span>
-mount -t zfs boot-pool/syno-hdd-power /run/shp &amp;&amp; bash /run/shp/install.sh; umount /run/shp</pre>
-      <p>A separate issue applies irrespective of the operating system selected. Both Ethernet interfaces initially come up with the same placeholder MAC address:</p>
-      <pre>12:34:56:78:9A:BC</pre>
-      <p>DSM would normally replace these during boot using the actual addresses stored in the eDOM's <code>vender</code> file. Without DSM, that step needs to be reproduced explicitly.</p>
-      <p>The preferred mechanism is a systemd <code>.link</code> file matched against the PCI path, allowing udev to assign the address while the interface is being created rather than changing it afterwards. This is particularly relevant on a headless system, where taking the active network interface down in order to change its MAC address can also remove the only available management path.</p>
-      <p>For example:</p>
-      <pre><span class="c"># /etc/systemd/network/10-lan1-mac.link</span>
-[Match]
-Path=pci-0000:01:00.0
-
-[Link]
-NamePolicy=path
-MACAddress=00:11:32:xx:xx:xx</pre>
     </section>
 
     <hr class="div">
@@ -377,6 +347,65 @@ enpBs0  DOWN  00:11:32:aa:bb:c2 ...</pre>
         <span class="tag">Caveat</span>
         <p>This method has been verified on a DS916+ equipped with two Intel i210 Ethernet controllers. Other DiskStation models may, however, use different network controllers, different PCI paths, and possibly a different layout of the <code>vender</code> file. The values shown in this example should therefore never be copied blindly. First determine the PCI paths on your own machine, then verify the contents and relevant offsets of your own <code>vender</code> file, and only after that create the final configuration. The solution itself is technically straightforward. That is precisely why every detail needs to be correct.</p>
       </div>
+    </section>
+
+    <hr class="div">
+
+    <section>
+      <div class="part-head"><span class="part-num">3</span><h2>Turn the drive bays on</h2></div>
+      <p>At this stage the operating system itself can boot successfully, but the internal drive bays may still appear to contain no disks. The underlying issue is not SATA detection but power: the bays are switched through four SoC GPIO lines which the BIOS leaves low and which DSM normally raises during its own boot sequence.</p>
+      <p>The required pin numbers can be found in DSM's kernel command line on the eDOM:</p>
+      <pre><span class="k">syno_hdd_enable=61,60,71,58</span></pre>
+      <p>On a mainline kernel, these correspond to the following lines on <code>gpiochip1</code>, labelled <code>INT33FF:01</code>:</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Bay</th><th class="mono">Synology GPIO</th><th class="mono">Mainline GPIO line</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td class="mono">61</td><td class="mono">615</td></tr>
+            <tr><td>2</td><td class="mono">60</td><td class="mono">614</td></tr>
+            <tr><td>3</td><td class="mono">71</td><td class="mono">631</td></tr>
+            <tr><td>4</td><td class="mono">58</td><td class="mono">612</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The bays can then be powered as follows:</p>
+      <pre><span class="p">#</span> for line in 615 614 631 612; do
+    echo $line &gt; /sys/class/gpio/export
+    echo <b>high</b> &gt; /sys/class/gpio/gpio$line/direction   <span class="c"># one write; "out" then "1" dips the rail</span>
+    sleep 3                                            <span class="c"># stagger the spin-up</span>
+  done</pre>
+      <p>The use of <code>high</code> in a single write is deliberate. Writing <code>out</code> first and subsequently writing <code>1</code> briefly changes the state of the line, causing the corresponding power rail to dip.</p>
+      <p>This sequence should be placed in a systemd unit and executed before any service that expects the storage devices to be present, including <code>mdadm</code>, LVM or ZFS pool import. On TrueNAS, the relevant ordering is:</p>
+      <pre>Before=ix-wait-on-disks.service zfs-import.target middlewared.service</pre>
+      <p>With that dependency in place, the drives are powered and available during every normal boot.</p>
+      <div class="note win">
+        <span class="tag">Minimum working configuration</span>
+        <p>At this point the essential hardware dependencies have been addressed. Satisfying the boot check and enabling power to the drive bays is sufficient to obtain a functional system independently of the operating system being used; the remaining work concerns integration features such as LEDs, fan control, disk sleep and persistence across updates.</p>
+      </div>
+    </section>
+
+    <hr class="div">
+
+    <section>
+      <div class="part-head"><span class="part-num">4</span><h2>Lights, fan and sleep</h2></div>
+      <p>The remaining hardware is accessible through standard interfaces, although DSM normally hides most of the relevant implementation details.</p>
+      <ul>
+        <li>Tray LEDs are controlled by a TI LP3943 at I&sup2;C address <code>0x60</code> on <code>i2c-1</code>, with access gated by GPIO line <code>661</code>. The logic on this board is inverted: register value <code>00</code> means on, while <code>01</code> means off. For bay N, the green LED is channel <code>2(N&minus;1)</code> and the orange LED is channel <code>2(N&minus;1)+1</code>.</li>
+        <li>The fan, status LED and buzzer are controlled by a microcontroller connected to <code>/dev/ttyS1</code> at 9600 8N1. It accepts single ASCII commands, including <code>Vnn</code> for fan duty and <code>7</code>, <code>8</code> and <code>9</code> for status LED off, on and blink respectively. Commands <code>1</code> and <code>C</code> must not be sent: they trigger power-off and reset immediately.</li>
+        <li>DSM-like disk sleep can be approximated by enabling EPC on the drives with <code>sg_sat_set_features --feature=0x4a</code>, providing a low-RPM idle state, followed by <code>hdparm -y</code> when the entire group has remained inactive for a longer period. One dependency needs particular attention: any ATA command, including a seemingly harmless <code>hdparm -C</code> issued by monitoring software, restarts the relevant timers. Monitoring should therefore avoid polling disks that have not already generated I/O.</li>
+      </ul>
+    </section>
+
+    <hr class="div">
+
+    <section>
+      <div class="part-head"><span class="part-num">5</span><h2>Make it persistent</h2></div>
+      <p>On a conventional Linux distribution, persistence is relatively straightforward because scripts and systemd units stored in <code>/etc</code> remain in place. Appliance-style operating systems introduce an additional dependency, however: on TrueNAS, <code>/etc</code> is writable during normal operation but is reset as part of an update.</p>
+      <p>The required files can therefore be retained on a small ZFS dataset and restored during POST-INIT:</p>
+      <pre><span class="p">#</span> zfs create -o mountpoint=legacy boot-pool/syno-hdd-power
+<span class="c"># TrueNAS &rarr; System &rarr; Advanced &rarr; Init/Shutdown Scripts, POSTINIT:</span>
+mount -t zfs boot-pool/syno-hdd-power /run/shp &amp;&amp; bash /run/shp/install.sh; umount /run/shp</pre>
+      <p>The same persistence requirement applies to the <code>.link</code> files used to restore the DiskStation&rsquo;s network identity. On TrueNAS, these files should therefore be retained alongside the other Synology-specific configuration and restored during POST-INIT after an update.</p>
     </section>
 
     <hr class="div">
