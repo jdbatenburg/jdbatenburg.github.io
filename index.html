@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J.D. Batenburg — Hardware field notes</title>
+<meta name="description" content="Hardware field notes by J.D. Batenburg: hands-on write-ups on taking apart and repurposing hardware.">
+<meta name="author" content="J.D. Batenburg">
+<link rel="canonical" href="https://jdbatenburg.github.io/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Hardware field notes">
+<meta property="og:title" content="J.D. Batenburg — Hardware field notes">
+<meta property="og:description" content="Hands-on write-ups on taking apart and repurposing hardware.">
+<meta property="og:url" content="https://jdbatenburg.github.io/">
+<meta name="twitter:card" content="summary">
+<style>
+  :root{
+    --bg:#ffffff; --surface:#f5f5f7;
+    --ink:#1d1d1f; --muted:#6e6e73;
+    --accent:#0071e3; --accent-ink:#0066cc;
+    --rule:#d2d2d7;
+    --measure:680px;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%; color-scheme:light}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Helvetica,Arial,sans-serif;
+    font-size:17px; line-height:1.47; letter-spacing:-.022em;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  .wrap{max-width:var(--measure); margin:0 auto; padding:0 22px}
+
+  header.mast{background:var(--bg)}
+  .mast .wrap{padding-top:88px; padding-bottom:48px; text-align:center}
+  .eyebrow{font-weight:600; font-size:12px; letter-spacing:-.01em; color:var(--muted); margin:0 0 14px}
+  h1{font-weight:600; letter-spacing:-.028em; font-size:clamp(2.2rem,6vw,3rem); line-height:1.07; margin:0; text-wrap:balance}
+  .dek{font-size:clamp(1.1rem,2.4vw,1.35rem); line-height:1.35; letter-spacing:-.01em; font-weight:400;
+    color:var(--muted); margin:18px auto 0; max-width:34em; text-wrap:balance}
+
+  main{padding:0 0 88px; border-top:1px solid var(--rule)}
+  .kicker{font-weight:600; font-size:12px; color:var(--muted); margin:56px 0 18px; letter-spacing:-.01em}
+
+  .entry{display:block; padding:22px 0; border-bottom:1px solid var(--rule); text-decoration:none; color:inherit}
+  .entry:first-of-type{border-top:1px solid var(--rule)}
+  .entry:hover h2{color:var(--accent-ink)}
+  .entry h2{font-weight:600; letter-spacing:-.022em; font-size:1.35rem; line-height:1.2; margin:0; text-wrap:balance}
+  .entry p{margin:8px 0 0; color:var(--muted); font-size:15px; line-height:1.45}
+  .entry .meta{margin-top:10px; font-size:12px; color:var(--muted); letter-spacing:-.01em}
+
+  footer{border-top:1px solid var(--rule); background:var(--surface); padding:34px 0 60px}
+  footer .wrap{color:var(--muted); font-size:13px; line-height:1.5; letter-spacing:-.01em}
+  a{color:var(--accent-ink); text-decoration:none} a:hover{text-decoration:underline}
+  a:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:4px}
+  ::selection{background:#b3d7ff; color:var(--ink)}
+</style>
+</head>
+<body>
+
+<header class="mast">
+  <div class="wrap">
+    <p class="eyebrow">Hardware field notes</p>
+    <h1>J.D. Batenburg</h1>
+    <p class="dek">Hands-on write-ups on taking hardware apart, working out how it actually operates, and putting it back to use.</p>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <p class="kicker">Writing</p>
+
+    <a class="entry" href="/truenas-ds916/">
+      <h2>Yes, my DS916+ Synology will run another OS</h2>
+      <p>The firmware checks two things and nothing else. Pass them, raise four GPIO lines, and the DiskStation is an ordinary Linux box that will take whatever OS you choose.</p>
+      <p class="meta">September 2026 &middot; DS916+ &middot; TrueNAS SCALE 25.10 &middot; any EFI Linux</p>
+    </a>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Written by J.D. Batenburg. Everything here was tested on the hardware described and comes with no warranty of any kind; verify the values against your own machine before reusing them.</p>
+  </div>
+</footer>
+
+</body>
+</html>
