@@ -383,8 +383,8 @@ mount -t zfs boot-pool/syno-hdd-power /run/shp &amp;&amp; bash /run/shp/install.
       <div class="part-head"><span class="part-num">6</span><h2>Two things not to do</h2></div>
       <h3>Do not reconfigure the network without a recovery path</h3>
       <p>On a headless DiskStation, the Ethernet connection is effectively the only management interface available during normal operation. Any change to interface naming, addressing, bridging or MAC configuration should therefore be made only when a recovery path already exists.</p>
-      <h3>Do not install drives beyond the chassis' intended power and thermal envelope</h3>
-      <p>Four 7200 rpm enterprise drives can bring the original 100 W power adapter close to its practical limit, while also increasing the thermal load inside a compact chassis. The lower-power 5400 rpm NAS drives around which the platform was designed operate with considerably more margin and, in this chassis, generally with less heat and noise.</p>
+      <h3>Do not install drives beyond the chassis' intended thermal envelope</h3>
+      <p>Four 7200 rpm enterprise drives raise the thermal load inside a compact chassis considerably. The lower-power 5400 rpm NAS drives around which the platform was designed run, in this chassis, with noticeably less heat and noise.</p>
     </section>
 
   </div>
